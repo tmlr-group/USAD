@@ -1,13 +1,20 @@
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import *
 import torch
 import torch.nn as nn
 import torchvision
 from torch.autograd import Variable
 from torchattacks import PGD, PGDL2, AutoAttack, CW, FGSM, BIM
+import sys
+import os
+
+# Add baselines/SAD directory to Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sad_dir = os.path.join(parent_dir, 'baselines', 'SAD')
+sys.path.append(sad_dir)
+
+from SAD_with_gradient import *
 
 # updated version of adv_generate, including an updated version of craft_adv
 def adv_generate(
@@ -138,6 +145,18 @@ def craft_adv(
             alpha=args.step_size, 
             steps=args.num_steps
             )
+    elif args.category == 'adaptive':
+        x_adv = adaptive_PGD(
+            model, 
+            x_clean, 
+            y, 
+            args.epsilon, 
+            args.step_size, 
+            args.num_steps, 
+            args.random_start, 
+            args.stat_names
+            )
+        return x_adv
     x_adv = attack(x_clean, y)
     return x_adv
 
@@ -161,10 +180,38 @@ def CW_linf(model, data, target, epsilon, step_size, num_steps, rand_init, num_c
     for k in range(num_steps):
         x_adv.requires_grad_()
         output = model(x_adv)
-
         model.zero_grad()
         with torch.enable_grad():
             loss_adv = cwloss(output, target, num_classes=num_classes)
+        loss_adv.backward()
+        eta = step_size * x_adv.grad.sign()
+        x_adv = x_adv.detach() + eta
+        x_adv = torch.min(torch.max(x_adv, data - epsilon), data + epsilon)
+        x_adv = torch.clamp(x_adv, 0.0, 1.0)
+    return x_adv
+
+def adaptive_PGD(model, data, target, epsilon, step_size, num_steps, rand_init, stat_names):
+    model.eval()
+
+    x_adv = data.detach() + torch.from_numpy(np.random.uniform(-epsilon, epsilon, data.shape)).float().cuda() if rand_init else data.detach()
+    x_adv = torch.clamp(x_adv, 0.0, 1.0)
+
+    for k in range(num_steps):
+        x_adv.requires_grad_()
+        output = model(x_adv)
+        if stat_names == 'variance':
+            USAD_output = STATS(data, x_adv, epsilon, ['variance'])
+        elif stat_names == 'uncertainty':
+            USAD_output = STATS(data, x_adv, epsilon, ['uncertainty'])
+        elif stat_names == 'aggregated':
+            USAD_output = STATS(data, x_adv, epsilon, ['variance', 'uncertainty'])
+        loss_ce=nn.CrossEntropyLoss()(output, target)
+        loss_usad=USAD_output
+
+        model.zero_grad()
+        with torch.enable_grad():
+            loss_adv = loss_ce - loss_usad
+
         loss_adv.backward()
         eta = step_size * x_adv.grad.sign()
         x_adv = x_adv.detach() + eta

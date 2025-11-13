@@ -18,7 +18,7 @@ import attack_generator as attack
 
 parser = argparse.ArgumentParser(description='PyTorch White-box Adversarial Attack Test')
 parser.add_argument('--net', type=str, default="resnet18", help="decide which network to use,choose from resnet18, resnet34, resnet50, vit_b_16")
-parser.add_argument('--dataset', type=str, default="cifar10", help="choose from cifar10,svhn,imagenet")
+parser.add_argument('--dataset', type=str, default="cifar10", help="choose from cifar10,imagenet")
 parser.add_argument('--drop_rate', type=float,default=0.0, help='WRN drop rate')
 parser.add_argument('--model_path', default='./checkpoint/CIFAR10/Res18/resnet-18.pth', help='model for white-box attack evaluation')
 
@@ -30,6 +30,7 @@ parser.add_argument('--step-size', default=1, type=int, help='perturb step size'
 parser.add_argument('--category', type=str, default='pgd', help='select attack category')
 parser.add_argument("--random-start", action="store_true")
 parser.add_argument('--norm', type=str, default='linf', help='select attack norm')
+parser.add_argument('--stat_names', type=str, default='aggregated', help='select stat names for adpative attack')
 args = parser.parse_args()
 
 def main():
@@ -41,10 +42,7 @@ def main():
     print('==> Load Test Data')
     if args.dataset == "cifar10":
         testset = torchvision.datasets.CIFAR10(root='../data/cifar10', train=False, download=True, transform=transform_test)
-        test_loader = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=0)
-    if args.dataset == "svhn":
-        testset = torchvision.datasets.SVHN(root='../data/cifar10', split='test', download=True, transform=transform_test)
-        test_loader = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=0)
+        test_loader = torch.utils.data.DataLoader(testset, batch_size=50, shuffle=False, num_workers=0)
     if args.dataset == "imagenet":
         args.num_class = 1000
         testset = ImageFolder(
@@ -57,7 +55,7 @@ def main():
         total_samples = len(testset)
         indices = random.sample(range(total_samples), min(500, total_samples))
         subset = Subset(testset, indices)
-        test_loader = torch.utils.data.DataLoader(subset, batch_size=64, shuffle=False, num_workers=0)
+        test_loader = torch.utils.data.DataLoader(subset, batch_size=50, shuffle=False, num_workers=0)
         print(f'==> Sampled {len(indices)} samples from ImageNet validation set')
 
     print('==> Load Model')
@@ -87,7 +85,11 @@ def main():
     print('==> Generate adversarial sample')
 
     PATH_DATA='./Adv_data/{}/{}/with_labels'.format(args.dataset, net)
-    ATTACK_FILENAME = 'Adv_{}_{}_{}_eps{}_{}.npz'.format(args.dataset, args.category, args.num_steps, args.epsilon, args.norm)
+
+    if args.category == 'adaptive':
+        ATTACK_FILENAME = 'Adv_{}_{}_{}_eps{}_{}_{}.npz'.format(args.dataset, args.category, args.num_steps, args.epsilon, args.norm, args.stat_names)
+    else:
+        ATTACK_FILENAME = 'Adv_{}_{}_{}_eps{}_{}.npz'.format(args.dataset, args.category, args.num_steps, args.epsilon, args.norm)
 
     os.makedirs(PATH_DATA, exist_ok=True)
 
