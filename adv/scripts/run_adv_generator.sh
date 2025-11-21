@@ -17,5 +17,7 @@ python adv_generator.py --category 'pgd-l2' --dataset $dataset --net $net --epsi
 python adv_generator.py --category 'aa' --dataset $dataset --net $net --epsilon $eps --num-steps $steps --norm 'linf'
 python adv_generator.py --category 'aa-l2' --dataset $dataset --net $net --epsilon $eps --num-steps $steps --norm 'l2'
 python adv_generator.py --category 'cw' --dataset $dataset --net $net --epsilon $eps --num-steps $steps --norm 'linf'
+python adv_generator.py --category 'cw-l2' --dataset $dataset --net $net --epsilon $eps --num-steps $steps --norm 'l2'
 python adv_generator.py --category 'fgsm' --dataset $dataset --net $net --epsilon $eps --norm 'linf'
+python adv_generator.py --category 'fgsm-l2' --dataset $dataset --net $net --epsilon $eps --norm 'l2'
 python adv_generator.py --category 'bim' --dataset $dataset --net $net --epsilon $eps --num-steps $steps --norm 'linf'

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torchvision
 from torch.autograd import Variable
-from torchattacks import PGD, PGDL2, AutoAttack, CW, FGSM, BIM
+from torchattacks import PGD, PGDL2, AutoAttack, FGSM, BIM
 import sys
 import os
 
@@ -116,11 +116,17 @@ def craft_adv(
             n_classes=args.num_class
             )
     elif args.category == 'cw-l2':
-        attack = CW(
+        adv = CW_l2(
             model, 
-            c=args.epsilon,
-            steps=args.num_steps
+            x_clean, 
+            y, 
+            args.epsilon, 
+            args.step_size, 
+            args.num_steps,
+            args.random_start,
+            args.num_class
             )
+        return adv
     elif args.category == 'cw':
         adv = CW_linf(
             model, 
@@ -138,6 +144,14 @@ def craft_adv(
             model, 
             eps=args.epsilon,
             )
+    elif args.category == 'fgsm-l2':
+        adv = FGSM_l2(
+            model, 
+            x_clean, 
+            y, 
+            args.epsilon
+            )
+        return adv
     elif args.category == 'bim':
         attack = BIM(
             model, 
@@ -188,6 +202,86 @@ def CW_linf(model, data, target, epsilon, step_size, num_steps, rand_init, num_c
         x_adv = x_adv.detach() + eta
         x_adv = torch.min(torch.max(x_adv, data - epsilon), data + epsilon)
         x_adv = torch.clamp(x_adv, 0.0, 1.0)
+    return x_adv
+
+def CW_l2(model, data, target, epsilon, step_size, num_steps, rand_init, num_classes):
+    model.eval()
+    
+    # 1. Random initialization within L2 ball
+    if rand_init:
+        # Sample from uniform distribution in L2 ball
+        delta = torch.randn_like(data).cuda()
+        # Normalize to unit sphere then scale to epsilon
+        delta_flat = delta.view(delta.shape[0], -1)
+        delta_norm = torch.norm(delta_flat, p=2, dim=1, keepdim=True)
+        delta_flat = delta_flat / (delta_norm + 1e-8) * epsilon
+        # Random scaling: uniformly sample radius
+        r = torch.rand(delta.shape[0], 1).cuda() ** (1.0 / delta_flat.shape[1])
+        delta = (delta_flat * r).view_as(data)
+        x_adv = data.detach() + delta
+    else:
+        x_adv = data.detach()
+    
+    # Clamp to valid image range
+    x_adv = torch.clamp(x_adv, 0.0, 1.0)
+    
+    # 2. Iterative attack
+    for k in range(num_steps):
+        x_adv.requires_grad_()
+        output = model(x_adv)
+        model.zero_grad()
+        
+        with torch.enable_grad():
+            loss_adv = cwloss(output, target, num_classes=num_classes)
+        loss_adv.backward()
+        
+        # 3. L2 gradient update (not sign!)
+        grad = x_adv.grad.detach()
+        grad_flat = grad.view(grad.shape[0], -1)
+        grad_norm = torch.norm(grad_flat, p=2, dim=1, keepdim=True)
+        # Normalize gradient and scale by step_size
+        grad_normalized = grad_flat / (grad_norm + 1e-8)
+        eta = (grad_normalized * step_size).view_as(grad)
+        
+        x_adv = x_adv.detach() + eta
+        
+        # 4. Project back to L2 ball centered at original data
+        delta = x_adv - data
+        delta_flat = delta.view(delta.shape[0], -1)
+        delta_norm = torch.norm(delta_flat, p=2, dim=1, keepdim=True)
+        # If norm > epsilon, project to epsilon-sphere
+        delta_flat = delta_flat / torch.clamp(delta_norm / epsilon, min=1.0)
+        delta = delta_flat.view_as(data)
+        x_adv = data + delta
+        
+        # 5. Clamp to valid image range [0, 1]
+        x_adv = torch.clamp(x_adv, 0.0, 1.0)
+    
+    return x_adv
+
+def FGSM_l2(model, data, labels, epsilon):
+    model.eval()
+    
+    x_adv = data.detach().clone()
+    x_adv.requires_grad = True
+    
+    output = model(x_adv)
+    
+    loss = nn.CrossEntropyLoss()
+    
+    cost = loss(output, labels)
+    
+    grad = torch.autograd.grad(cost, x_adv, retain_graph=False, create_graph=False)[0]
+    
+    grad_flat = grad.view(grad.shape[0], -1)
+    grad_norm = torch.norm(grad_flat, p=2, dim=1, keepdim=True)
+    grad_normalized = grad_flat / (grad_norm + 1e-8)
+    
+    perturbation = (grad_normalized * epsilon).view_as(grad)
+    x_adv = x_adv.detach() + perturbation
+    
+    x_adv = torch.clamp(x_adv, 0.0, 1.0)
+    
     return x_adv
 
 def adaptive_PGD(model, data, target, epsilon, step_size, num_steps, rand_init, stat_names):
