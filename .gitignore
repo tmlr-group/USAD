@@ -1,12 +1,35 @@
+# Datasets
+data/
 ./dataset
-./pretrained
+
+# Model weights and checkpoints
+pretrained/
 **/*checkpoint*/
-**/*data*/
+*.pth
+*.pt
+*.ckpt
+
+# Adversarial data (large .npz files)
+adv/Adv_data/
+*.npz
+
+# Experiment outputs
 **/*Results*/
 **/*Results*
-*.pth
+*.npy
+
+# Logs and job scripts
 *.txt
 *.slurm
 *.out
-*.npy
+*.log
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
